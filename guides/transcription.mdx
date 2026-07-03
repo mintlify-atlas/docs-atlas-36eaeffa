@@ -1,0 +1,85 @@
+---
+title: "Video Transcription: Subtitles and Whisper Fallback"
+sidebarTitle: "Transcription"
+description: "claude-real-video uses existing subtitles first (sidecar .srt/.vtt or embedded streams) and falls back to Whisper only when none exist, for fast and accurate transcripts."
+---
+
+Frames give a model the visual track of a video. Transcription gives it the words. Together they let the LLM see, read, and reason about a video at the same time — without the model having to perform speech recognition itself or receiving a wall of unstructured audio.
+
+`claude-real-video` follows a strict **priority chain** for transcription: it always prefers the most accurate, fastest source available before falling back to anything slower. Whisper is a last resort, not the default — and when a video genuinely has no audio, that fact is reported honestly in `MANIFEST.txt` rather than treated as a tool failure.
+
+## Transcription priority
+
+Drawn from the `process()` function in `core.py`:
+
+1. **Sidecar subtitle file** — if the source is a local file (not a URL), the tool looks for a `.srt` or `.vtt` file with the same basename in the same directory. For example, `lecture.mp4` paired with `lecture.srt` will use the `.srt` directly. Timecodes, sequence numbers, and inline tags are stripped, leaving clean plain text.
+
+2. **Embedded subtitle stream** — if the video file carries an embedded subtitle track (detected via `ffprobe -select_streams s`), it is extracted with `ffmpeg -map 0:s:0` and converted to plain text the same way.
+
+3. **Whisper transcription** — when no subtitles exist, the tool extracts a 16 kHz mono WAV from the video and passes it to the `whisper` CLI. This requires the `[whisper]` extra (see below). Whisper uses the `base` model by default and writes output to `{out_dir}/transcript.txt`.
+
+4. **No transcript** — if the video has no audio track, or `--no-transcribe` was passed, the manifest records the reason honestly (e.g. `"(none — this video has no subtitles and no audio track)"`). This is not an error.
+
+In all cases the transcript is written to `{out_dir}/transcript.txt` and its content is inlined into `MANIFEST.txt` after the `--- transcript ---` separator.
+
+## Installing Whisper
+
+Whisper is an optional dependency. Install it with the bundled extra or directly:
+
+```bash
+# Recommended: installs whisper alongside claude-real-video
+pip install "claude-real-video[whisper]"
+
+# Or install openai-whisper standalone
+pip install openai-whisper
+```
+
+Whisper also requires `ffmpeg` to be installed on your system. See the [installation guide](/guides/how-it-works) for platform-specific instructions.
+
+<Note>
+  Whisper is invoked via the `whisper` CLI using the `base` model by default (`--model base`). The `base` model balances speed and accuracy well for most speech. If you need higher accuracy on difficult audio (heavy accents, noisy environments), install `openai-whisper` and run `whisper` manually on `{out_dir}/audio.wav` with a larger model such as `--model medium` or `--model large`.
+</Note>
+
+## Language detection
+
+By default, Whisper auto-detects the spoken language (`--lang auto`). Pass `--lang` with a [BCP-47 language code](https://en.wikipedia.org/wiki/IETF_language_tag) to force a specific language and improve accuracy:
+
+```bash
+# Force English transcription
+crv lecture.mp4 --lang en
+
+# Force Mandarin Chinese
+crv video.mp4 --lang zh
+
+# Explicit auto-detect (the default)
+crv video.mp4 --lang auto
+```
+
+When `lang` is set to anything other than `auto`, it is passed to Whisper as `--language {lang}`. Auto-detect is omitted from the Whisper command entirely, letting Whisper use its built-in language identification.
+
+## Skipping transcription
+
+Use `--no-transcribe` to skip all transcription steps entirely. No subtitle extraction, no Whisper invocation, no WAV file:
+
+```bash
+crv clip.mp4 --no-transcribe
+```
+
+The manifest will record `transcript: (skipped: --no-transcribe)`. This is useful when you only need the frames, or when you plan to transcribe separately with a different tool.
+
+<Tip>
+  `--no-transcribe` makes the run faster and removes the `openai-whisper` dependency for frame-only workflows.
+</Tip>
+
+## Keeping the full audio track
+
+`--keep-audio` saves the complete original soundtrack — music, speech, and sound effects — as `{out_dir}/audio.m4a`. The implementation first attempts a **lossless stream copy** (works for AAC and ALAC sources), and falls back to a high-quality AAC re-encode at 192 kbps for other codecs (Opus, Vorbis, …).
+
+```bash
+crv video.mp4 --keep-audio
+# → crv-out/audio.m4a  (full soundtrack: music + speech + effects)
+```
+
+The transcript captures the *words*. The audio file lets audio-capable models (Gemini, GPT-4o, …) actually *hear* the music and tone — intonation, background score, and non-verbal sounds that text can never convey. The path to `audio.m4a` is recorded in `MANIFEST.txt` under the `audio:` key.
+
+If the video has no audio track, `--keep-audio` is a no-op and the manifest records `audio: (none — this video has no audio track)`.

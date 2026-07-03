@@ -1,0 +1,77 @@
+---
+title: "Frame Deduplication: Sliding-Window Pixel Difference"
+sidebarTitle: "Deduplication"
+description: "Learn how claude-real-video eliminates near-duplicate frames using real pixel difference against a sliding window, so repeated shots are never sent to your LLM twice."
+---
+
+Frame extraction can produce large numbers of near-identical images. A ten-minute screencast with one static slide will generate hundreds of frames that are pixel-for-pixel identical. An A-B-A edit (cut to a reaction shot and back) will re-introduce a shot the model has already processed. Without deduplication, the model's context window fills up with redundant images, wasting tokens and diluting the signal. `claude-real-video` removes near-duplicates using a **sliding-window pixel-difference algorithm** before any frame reaches the LLM.
+
+## How it works
+
+The deduplication algorithm is implemented in `dedup_frames()` in `core.py`:
+
+**Step 1 — Signature generation**
+
+Each candidate frame (`raw_*.jpg`, in chronological order) is opened with Pillow, converted to **RGB**, and downscaled to **16×16 pixels**. The resulting 256 RGB tuples form the frame's signature. RGB is used deliberately rather than grayscale or a perceptual hash:
+
+- Perceptual hashes normalise for brightness and can be blind on flat-colour frames (a pure red background and a pure green background may produce identical hashes).
+- Grayscale comparators miss equal-luma hue changes — a red-to-green cut where both colours have similar brightness looks like no change at all.
+- Per-pixel RGB difference catches both cases correctly.
+
+**Step 2 — Sliding window comparison**
+
+Each frame's signature is compared against the signatures of the last `window` **kept** frames (default `4`). The comparison function computes the **max channel difference** per pixel:
+
+```
+changed = pixels where max(|r₁−r₂|, |g₁−g₂|, |b₁−b₂|) > 25
+pct_diff = 100 × changed / 256
+```
+
+A pixel is considered changed when any of its three colour channels differs by more than a 25-unit tolerance (out of 255), avoiding false positives from JPEG compression artefacts.
+
+**Step 3 — Keep/drop decision**
+
+A frame is **kept** if its minimum distance to *any* frame in the window exceeds `threshold`% (default `8`). If every window frame is within threshold%, the frame is considered a near-duplicate and dropped.
+
+**Step 4 — Window prevents A-B-A recurrence**
+
+Because the window holds the last *N* kept frames (not just the immediately preceding frame), an A-B-A cutaway is correctly identified: after shot A is seen, a cutaway to shot B, and then back to shot A, the second appearance of A is still within the window's memory and will be dropped. The model only sees each distinct visual once.
+
+## After deduplication: the frame cap
+
+If the number of surviving frames exceeds `--max-frames` (default `150`), the list is **uniformly thinned** so the final set stays spread across the entire video timeline:
+
+```python
+step = len(kept) / max_frames
+keep_idx = {int(i * step) for i in range(max_frames)}
+```
+
+Every `step`-th survivor is retained; the rest are removed. This preserves temporal coverage (the first and last frames of the video are always represented) rather than simply truncating the tail.
+
+Survivors are then renamed `frame_001.jpg`, `frame_002.jpg`, … in chronological order.
+
+## Tuning
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--dedup-threshold` | `8` | Percentage of pixels that must change for a frame to count as new. **Higher** = fewer frames kept (more aggressive deduplication). Try `15`–`20` for screencasts; `4`–`6` for footage where subtle visual changes matter. |
+| `--dedup-window` | `4` | Number of previously-kept frames to compare against. `1` = consecutive-only (classic frame differencing). Higher values catch A-B-A cutaways and cyclically repeated shots. Rarely needs to exceed `6`–`8`. |
+
+## Debugging with --report
+
+Pass `--report` to get a full visualisation of every keep/drop decision:
+
+```bash
+crv clip.mp4 --report
+# → crv-out/report.html  (open in browser to tune thresholds)
+```
+
+When `--report` is active:
+
+- **Dropped frames** are moved to `crv-out/dropped/` instead of being deleted, so you can inspect what was removed.
+- **`report.html`** is a self-contained page showing every extracted frame — kept and dropped — with its pixel-diff percentage. Frames are colour-coded:
+  - 🟢 **Green outline** — kept (diff exceeded threshold)
+  - 🔴 **Red outline, dimmed** — dropped as a near-duplicate
+  - 🟠 **Orange outline, dimmed** — removed by the `--max-frames` cap after deduplication
+
+Open `report.html` in any browser and look for patterns: too many orange frames means `--max-frames` is too tight; too many green frames that look visually identical means `--dedup-threshold` needs to go up; important visual changes showing as red means the threshold is too high or the window is too wide.

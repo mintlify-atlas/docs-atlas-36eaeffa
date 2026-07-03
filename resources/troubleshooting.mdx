@@ -1,0 +1,184 @@
+---
+title: "Troubleshooting claude-real-video: Common Errors and Fixes"
+sidebarTitle: "Troubleshooting"
+description: "Diagnose and fix the most common errors with claude-real-video: ffmpeg not found, download failures, Whisper not transcribing, and empty frame outputs."
+---
+
+Most issues with `claude-real-video` trace back to one of three root causes: `ffmpeg` not being on your `PATH`, a missing or outdated `yt-dlp` installation, or the optional Whisper package not being present. The accordions below walk through each common symptom, its cause, and the exact fix.
+
+<AccordionGroup>
+
+<Accordion title='"ffmpeg not found" or "ffprobe not found"'>
+
+**Symptom:** `RuntimeError: ffmpeg not found` is raised, or the tool runs without error but extraction produces 0 frames.
+
+**Cause:** `ffmpeg` (and its companion `ffprobe`) are not pip-installable — they must be installed at the system level and available on your `PATH`. `claude-real-video` relies on both for frame extraction and audio handling.
+
+**Fix:** Install `ffmpeg` for your operating system:
+
+| OS | Command |
+|---|---|
+| **macOS** | `brew install ffmpeg` |
+| **Linux** | `sudo apt install ffmpeg` (or your distro's package manager) |
+| **Windows** | `winget install Gyan.FFmpeg` — or download a build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) |
+
+Then verify it is on your `PATH`:
+
+```bash
+ffmpeg -version
+```
+
+On **Windows**, if you downloaded a build manually, you must add the `bin\` folder inside the extracted archive to your system `PATH` before the above command will work.
+
+</Accordion>
+
+<Accordion title='"Download failed (private video? try --cookies)"'>
+
+**Symptom:** `RuntimeError: Download failed (private video? try --cookies your_cookies.txt)`
+
+**Cause:** The video is private, age-gated, or geo-restricted. `yt-dlp` cannot access it without authentication credentials.
+
+**Fix:** Export a Netscape-format cookie file from your browser using an extension such as [Get cookies.txt](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc), then pass it to `crv`:
+
+```bash
+crv "https://www.youtube.com/watch?v=..." --cookies cookies.txt
+```
+
+Only use this for content you are authorised to access. Never commit credential files to a repository.
+
+</Accordion>
+
+<Accordion title='"yt-dlp not found"'>
+
+**Symptom:** `RuntimeError: yt-dlp not found. Install it: pip install yt-dlp`
+
+**Cause:** `yt-dlp` is listed as a Python dependency of `claude-real-video`, but in some virtual environments it may not end up on `PATH` (for example if it was installed into a different environment, or if the environment's `bin`/`Scripts` directory is not activated).
+
+**Fix:** Install or upgrade `yt-dlp` directly:
+
+```bash
+pip install yt-dlp
+```
+
+Or reinstall the whole package to pull in all dependencies:
+
+```bash
+pip install --upgrade claude-real-video
+```
+
+</Accordion>
+
+<Accordion title='"No transcript — whisper not installed"'>
+
+**Symptom:** `MANIFEST.txt` contains the line:
+
+```
+transcript: (none — no existing subtitles; install whisper to transcribe: pip install openai-whisper)
+```
+
+**Cause:** The Whisper CLI is not installed. Transcription via Whisper is an optional extra — the core `claude-real-video` package does not install it automatically.
+
+**Fix:** Install the `[whisper]` extra:
+
+```bash
+pip install "claude-real-video[whisper]"
+```
+
+Or install `openai-whisper` directly:
+
+```bash
+pip install openai-whisper
+```
+
+Note that Whisper itself also requires `ffmpeg` to be on your `PATH` (see the first accordion above).
+
+</Accordion>
+
+<Accordion title='"0 frames extracted"'>
+
+**Symptom:** The CLI reports `0 frames (deduped from 0 extracted)` and the `frames/` directory is empty.
+
+**Causes:**
+
+- `ffmpeg` is not on `PATH` — extraction silently produces no output.
+- The video file has no video stream (audio-only file).
+- The clip is extremely short and falls below the density floor / scene threshold.
+
+**Fix:** First verify `ffmpeg` is available:
+
+```bash
+ffmpeg -version
+```
+
+If `ffmpeg` is present but you are processing a very short or low-motion clip, lower the detection thresholds so more frames are captured:
+
+```bash
+crv clip.mp4 --scene 0.1 --fps-floor 0.5
+```
+
+`--scene 0.1` makes scene-change detection more sensitive; `--fps-floor 0.5` guarantees at least one frame every half-second even with no scene changes.
+
+</Accordion>
+
+<Accordion title='"Too many frames (hitting --max-frames cap)"'>
+
+**Symptom:** The reported frame count equals exactly the `--max-frames` value (default `150`), and some of the saved frames look redundant or very similar to each other.
+
+**Cause:** After scene-change detection and deduplication, the number of candidate frames still exceeds the hard cap. The cap then thins the survivors uniformly, which can let near-duplicates through if the dedup threshold was too permissive.
+
+**Fix:** Raise `--dedup-threshold` to be more aggressive about dropping similar frames (e.g. `15` instead of the default `8`), or raise `--scene` to reduce the number of scene-change candidates in the first place:
+
+```bash
+crv video.mp4 --dedup-threshold 15 --scene 0.5
+```
+
+Use `--report` to generate `report.html` and visually inspect which frames were kept, dropped, or removed by the cap — this makes tuning much easier:
+
+```bash
+crv video.mp4 --report
+```
+
+</Accordion>
+
+<Accordion title='"Output directory is overwritten each run"'>
+
+**Symptom:** After running `crv` a second time, the output from the previous run is gone.
+
+**Cause:** This is by design — each run overwrites the output directory (`crv-out` by default). The README notes: *"Re-running overwrites the output directory."*
+
+**Fix:** Use `-o` to specify a unique output directory per run:
+
+```bash
+crv video1.mp4 -o out-video1
+crv video2.mp4 -o out-video2
+```
+
+Alternatively, use `--kb` to automatically save a dated markdown note of the analysis to a persistent folder (such as an Obsidian vault) so your findings survive the next run:
+
+```bash
+crv video.mp4 --kb ~/notes
+```
+
+</Accordion>
+
+<Accordion title='"Whisper produces wrong language"'>
+
+**Symptom:** The `transcript.txt` file contains text in an unexpected language, or Whisper picks the wrong language for a multilingual video.
+
+**Cause:** When `--lang` is not set, Whisper uses automatic language detection, which samples only the first 30 seconds. If those seconds are ambiguous or contain music, detection can fail.
+
+**Fix:** Pass the expected language code explicitly:
+
+```bash
+crv video.mp4 --lang en
+```
+
+Replace `en` with the appropriate [ISO 639-1 code](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes) for your language (e.g. `zh` for Chinese, `fr` for French, `ja` for Japanese).
+
+</Accordion>
+
+</AccordionGroup>
+
+<Note>
+If your issue is not covered here, please open a ticket on the [GitHub Issues page](https://github.com/HUANGCHIHHUNGLeo/claude-real-video/issues). Include the exact error message, your OS, Python version, and the command you ran.
+</Note>

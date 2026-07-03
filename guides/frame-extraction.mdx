@@ -1,0 +1,54 @@
+---
+title: "Frame Extraction: Scene-Change Detection and Density Floor"
+sidebarTitle: "Frame Extraction"
+description: "Understand how claude-real-video selects frames using ffmpeg scene-change detection combined with a configurable density floor to cover both fast cuts and static screencasts."
+---
+
+The naive approach to extracting frames — sample one every N seconds — fails at both extremes. A static screencast with a single talking head generates hundreds of near-identical frames, flooding the model's context window with redundant images. A fast-cut music video or film trailer sees whole scenes pass between samples, leaving the model blind to significant visual changes. `claude-real-video` solves both problems with a single `ffmpeg` pass that combines **scene-change detection** with a **density floor**, then removes any remaining duplicates before the LLM ever sees a frame.
+
+## The ffmpeg filter
+
+Frame extraction runs in `extract_frames()` via a single `ffmpeg select` filter expression:
+
+```
+select='gt(scene,{scene})+not(mod(n,{every_n}))',scale=640:-1
+```
+
+The two clauses are joined with `+` (logical OR):
+
+- **`gt(scene,{scene})`** — fires on any frame where ffmpeg's built-in scene-change score exceeds the threshold. The score is a normalised value between 0 and 1 representing how much the current frame differs from the previous one. A lower threshold means more sensitive detection and more frames.
+- **`not(mod(n,{every_n}))`** — fires on every *N*th frame number, providing the density floor. `every_n` is computed as `round(fps × fps_floor)`, so at 25 fps with `--fps-floor 1.0` it keeps one frame per second regardless of how static the footage is.
+
+Because both conditions are evaluated in a single pass with `-vsync vfr`, all selected frames emerge in strict **chronological order** — critical for the deduplication stage, which compares true temporal neighbours.
+
+The full command run against the fetched `source.mp4` is:
+
+```bash
+ffmpeg -i source.mp4 \
+  -vf "select='gt(scene,0.30)+not(mod(n,25))',scale=640:-1" \
+  -vsync vfr frames/raw_%05d.jpg
+```
+
+Frames are written to `{out_dir}/frames/` as `raw_00001.jpg`, `raw_00002.jpg`, …
+
+## Tuning the parameters
+
+| Flag | Default | Range / Type | Effect |
+|---|---|---|---|
+| `--scene` | `0.30` | `0.0`–`1.0` (float) | Scene-change sensitivity. **Lower** = more scene-triggered frames. `0.10` catches subtle cuts; `0.50` only fires on hard scene changes. |
+| `--fps-floor` | `1.0` | seconds (float) | Minimum guaranteed density: at least one frame every N seconds. `0.5` doubles the floor density; `5.0` only guarantees one frame every 5 seconds for very slow content. |
+| `--max-frames` | `150` | integer | Hard cap on the **final** frame count after deduplication. Uniform thinning is applied if survivors exceed this limit. |
+
+**Practical guidance:**
+
+- **Screencasts and slide decks** — the visuals barely change between scene triggers. Raise `--scene` (e.g. `0.50`) to reduce noise from marginal changes, and trust the floor to catch genuine slide transitions.
+- **Fast-cut reels, trailers, action footage** — many hard cuts per second. Lower `--fps-floor` (e.g. `0.25`) and `--scene` (e.g. `0.15`) to ensure every cut is captured.
+- **Long lectures or interviews** — a single talking head with rare scene changes. The default `--fps-floor 1.0` will produce one frame per second, so raise `--fps-floor` (e.g. `3.0` or `5.0`) and let deduplication collapse the static runs.
+
+<Warning>
+  All extracted frames are scaled to **640 px wide** (aspect ratio preserved) by the `scale=640:-1` argument in the ffmpeg filter. This keeps file sizes consistent and prevents very-high-resolution sources from producing multi-megabyte JPEG files for every frame. The scale is applied during extraction and cannot be configured separately from the command line.
+</Warning>
+
+<Tip>
+  Frame extraction produces `raw_*.jpg` candidates — near-duplicates within that set are removed in the deduplication stage before the final `frame_NNN.jpg` files are written. See [Frame Deduplication](/guides/deduplication) for how the sliding-window pixel-difference algorithm works and how to tune `--dedup-threshold` and `--dedup-window`.
+</Tip>

@@ -1,0 +1,101 @@
+---
+title: "How claude-real-video Processes a Video End to End"
+sidebarTitle: "How It Works"
+description: "A step-by-step walkthrough of the claude-real-video pipeline: fetch, frame extraction, deduplication, transcription, and MANIFEST generation."
+---
+
+`claude-real-video` turns any video — a URL or a local file — into a clean, LLM-readable folder in five stages. It fetches the source, extracts scene-aware frames in a single chronological pass, deduplicates them with a sliding-window pixel-difference algorithm, transcribes the audio (preferring existing subtitles over Whisper), and writes a `MANIFEST.txt` the model can read as context. The result: fewer, more meaningful frames alongside a full transcript — cheaper context, sharper understanding.
+
+<Steps>
+  <Step title="Fetch">
+    **Function:** `fetch_video(src, out_dir, cookies=None)`
+
+    If `src` starts with `http://` or `https://`, `yt-dlp` downloads the video and writes it to `source.mp4` inside the output directory. An optional `--cookies` argument accepts a Netscape-format cookie file for login-gated sources (your own, authorised access only). If `yt-dlp` cannot write `source.mp4` directly (e.g. the container differs), the function falls back to the first matching `source.*` file.
+
+    For a local path, `shutil.copy` copies the file verbatim to `source.mp4`. Either way, every subsequent stage reads a single canonical file at `{out_dir}/source.mp4`.
+
+    ```bash
+    # URL — yt-dlp handles YouTube, Instagram, TikTok, and hundreds of other sites
+    crv "https://www.youtube.com/watch?v=..."
+
+    # Local file
+    crv lecture.mp4 -o out
+    ```
+  </Step>
+
+  <Step title="Extract frames">
+    **Function:** `extract_frames(video, frames_dir, scene, fps_floor)`
+
+    A single `ffmpeg` pass with a `select` filter captures every scene change **and** a density floor simultaneously, keeping all frames in chronological order:
+
+    ```
+    select='gt(scene,{scene})+not(mod(n,{every_n}))',scale=640:-1
+    ```
+
+    - `gt(scene,{scene})` — fire on any frame where the scene-change score exceeds the threshold (default `0.30`).
+    - `not(mod(n,{every_n}))` — also keep every *N*th frame, where `every_n = round(fps × fps_floor)`. At 25 fps with the default `--fps-floor 1.0`, that is every 25th frame — at least one frame per second regardless of how static the video is.
+    - `scale=640:-1` — resize to 640 px wide (aspect ratio preserved) for consistent, manageable image sizes.
+
+    The `-vsync vfr` flag prevents duplicated timestamps. Frames are written as `raw_00001.jpg`, `raw_00002.jpg`, … into `{out_dir}/frames/`.
+  </Step>
+
+  <Step title="Deduplicate">
+    **Function:** `dedup_frames(frames_dir, threshold, window, max_frames, dropped_dir)`
+
+    Near-duplicate frames — repeated shots, static screencasts, A-B-A cutaways — are removed by a sliding-window pixel-difference algorithm:
+
+    1. Each `raw_*.jpg` frame is downscaled to **16×16 RGB** to form a compact signature.
+    2. Per-pixel **max channel difference** is computed against each signature in a window of the last `window` kept frames (default `4`). A pixel is considered "changed" when any colour channel differs by more than a 25-unit tolerance.
+    3. A frame is **kept** if its minimum distance to any window frame exceeds `threshold`% (default `8`). Otherwise it is dropped (or moved to `dropped/` if `--report` is active).
+    4. The window catches **A-B-A cutaways** — if shot A appeared frames ago and shot B sat in between, the model won't see shot A a second time.
+
+    **Why RGB, not a perceptual hash?** Perceptual hashes go blind on flat colours and on equal-luma hue changes (e.g. a red-to-green cut looks identical to a grayscale comparator). RGB per-pixel comparison catches both.
+
+    After deduplication, survivors are renamed `frame_001.jpg`, `frame_002.jpg`, … If more survivors remain than `--max-frames` (default `150`), the list is **uniformly thinned**: `step = len(kept) / max_frames`, keeping every `step`-th frame spread evenly across the video timeline.
+  </Step>
+
+  <Step title="Transcription">
+    **Function:** `existing_subtitles()` → `transcribe()`
+
+    Transcription follows a strict priority chain so the fastest, most accurate source is always used:
+
+    1. **Sidecar subtitle file** — a `.srt` or `.vtt` file with the same basename next to a local source file (e.g. `lecture.srt` alongside `lecture.mp4`).
+    2. **Embedded subtitle stream** — extracted via `ffmpeg -map 0:s:0` and converted to plain text.
+    3. **Whisper fallback** — the `whisper` CLI is invoked on a 16 kHz mono WAV extracted from the video (requires the `[whisper]` extra).
+    4. **No transcript** — if the video has no audio track, or `--no-transcribe` was passed, this is reported honestly in `MANIFEST.txt` rather than treated as an error.
+
+    The transcript is written to `{out_dir}/transcript.txt` as plain text, with subtitle indices, timecodes, and inline tags stripped.
+  </Step>
+
+  <Step title="MANIFEST">
+    **Written at:** `{out_dir}/MANIFEST.txt`
+
+    The manifest is a plain-text file summarising the analysis for the LLM that will read it. A typical manifest contains:
+
+    ```
+    source: https://youtu.be/...
+    duration: 312s | frames: 47 (scene-change + density floor, deduped from 198 extracted)
+    frames dir: crv-out/frames
+    transcript: crv-out/transcript.txt (from the video's own subtitles)
+    --- transcript ---
+    Hello, and welcome to today's session...
+    ```
+
+    If `--why` was passed, a `viewing intent:` line is prepended so the model reads the frames and transcript through the specified analytical lens rather than producing a generic summary. If `--keep-audio` was used, an `audio:` line records the path to `audio.m4a`.
+  </Step>
+</Steps>
+
+## Audio preservation (optional)
+
+Passing `--keep-audio` saves the complete original soundtrack to `{out_dir}/audio.m4a`. The implementation first attempts a **lossless stream copy** (works for AAC/ALAC sources) and falls back to a high-quality AAC re-encode at 192 kbps for other codecs (Opus, Vorbis, …).
+
+The transcript captures the *words* — `audio.m4a` lets audio-capable models (Gemini, GPT-4o, …) actually *hear* the music, tone, and sound effects.
+
+```bash
+crv video.mp4 --keep-audio
+# → crv-out/audio.m4a  (full soundtrack: music + speech + effects)
+```
+
+<Tip>
+  Run with `--report` to generate `crv-out/report.html` — a self-contained HTML page that shows every extracted frame (kept or dropped) with its pixel-diff percentage, colour-coded green (kept), red (duplicate), and orange (removed by the `--max-frames` cap). Open it in a browser to tune `--scene`, `--dedup-threshold`, and `--dedup-window` before a longer run. See [Deduplication](/guides/deduplication) for details.
+</Tip>

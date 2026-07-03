@@ -1,0 +1,77 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "claude-real-video",
+  "projectDescription": "A Python CLI and library that lets any LLM actually watch a video by extracting scene-aware, deduplicated frames and a transcript from a URL or local file — all processed locally.",
+  "theme": "luma",
+  "primaryColor": "#fc0404",
+  "lightColor": "#fc7c7c",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/how-it-works",
+              "guides/frame-extraction",
+              "guides/deduplication",
+              "guides/transcription",
+              "guides/knowledge-base"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/cli",
+              "reference/python-api",
+              "reference/output-format"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "resources/troubleshooting",
+              "resources/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Scene-change detection extracts only visually meaningful frames (not fixed-interval sampling)",
+    "Sliding-window deduplication prevents repeated shots from being sent to the model multiple times",
+    "Automatic transcription via existing subtitles (sidecar .srt/.vtt or embedded stream) with Whisper fallback",
+    "Supports both remote URLs (YouTube, Instagram, TikTok, etc. via yt-dlp) and local video files",
+    "Optional full audio track extraction (audio.m4a) for models that can listen",
+    "MANIFEST.txt output that any LLM can read to understand the video",
+    "Knowledge-base integration (--kb) to save analysis as dated markdown notes (e.g. Obsidian)",
+    "Tunable dedup report (report.html) for visualising every keep/drop decision",
+    "Fully local — nothing is uploaded to any cloud service",
+    "Login-gated video support via Netscape cookie file (--cookies)"
+  ],
+  "publicApiSurface": [
+    "crv <source> [options] — CLI command",
+    "python -m claude_real_video <source> [options] — module alias for CLI",
+    "process(src, out_dir, *, scene, fps_floor, max_frames, lang, cookies, do_transcribe, dedup_threshold, dedup_window, keep_audio, report, why) -> Result — Python API",
+    "Result dataclass: out_dir, video, duration, frames_dir, frame_count, extracted_frames, transcript_path, manifest_path, transcript_note, audio_path, report_path",
+    "fetch_video(src, out_dir, cookies) -> str",
+    "extract_frames(video, frames_dir, scene, fps_floor) -> int",
+    "dedup_frames(frames_dir, threshold, window, max_frames, dropped_dir) -> tuple[int, list[dict]]",
+    "transcribe(video, out_dir, lang) -> str | None",
+    "existing_subtitles(src, video, out_dir) -> str | None",
+    "extract_full_audio(video, out_dir) -> str | None",
+    "save_to_kb(kb_dir, manifest_path, src) -> str",
+    "write_report(out_dir, records, threshold, window) -> str"
+  ]
+}

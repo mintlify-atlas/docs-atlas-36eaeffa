@@ -1,47 +1,116 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with claude-real-video in Minutes"
+sidebarTitle: "Quickstart"
+description: "Run your first video analysis with claude-real-video in under two minutes. Covers a YouTube URL, a local file, and how to hand the output to an LLM."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This page walks through installing `claude-real-video`, analysing your first video (a YouTube URL and a local file), exploring the output folder, and handing the results to an LLM. Each step takes under a minute once `ffmpeg` is installed.
 
 <Steps>
   <Step title="Install">
-    Describe how to install your product or sign up.
+    Choose the tier that matches your needs. The core install gives you frame extraction and deduplication. Add the `[whisper]` extra for audio transcription.
+
+    <CodeGroup>
+      ```bash Core install
+      pip install claude-real-video
+      ```
+
+      ```bash With Whisper transcription
+      pip install "claude-real-video[whisper]"
+      ```
+    </CodeGroup>
+
+    You also need `ffmpeg` on your `PATH`. See [Installation](/installation) for platform-specific instructions.
+  </Step>
+
+  <Step title="Analyse a YouTube video">
+    Pass any URL that `yt-dlp` supports — YouTube, Instagram Reels, TikTok, and hundreds of other sites:
 
     ```bash
-    npm install your-package
+    crv "https://www.youtube.com/watch?v=..."
+    ```
+
+    `crv` will:
+    1. Download the video via `yt-dlp`
+    2. Extract frames at every scene change plus a density floor (at least one frame per second)
+    3. Deduplicate near-identical frames using real pixel differences against a sliding window
+    4. Transcribe the audio with Whisper (if installed), or use embedded subtitles if present
+    5. Write `MANIFEST.txt` summarising everything for the model
+
+    Expected terminal output:
+
+    ```
+    ✓ Done → crv-out
+      42 frames  (deduped from 187 extracted)  in crv-out/frames
+      manifest:   crv-out/MANIFEST.txt
+      transcript: crv-out/transcript.txt
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
-    ```
+  <Step title="Explore the output">
+    The output directory (`crv-out` by default) contains three items:
+
+    | File | Description |
+    |---|---|
+    | `frames/frame_001.jpg` … `frame_NNN.jpg` | The kept frames in chronological order, each scaled to 640 px wide. |
+    | `transcript.txt` | Plain-text transcript — from embedded subtitles if available, otherwise from Whisper. |
+    | `MANIFEST.txt` | A single summary file with source URL, duration, frame count, dedup stats, and the full transcript. This is what you hand to the LLM. |
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
 
-    ```bash
-    your-cli start
-    ```
+  <Step title="Hand it to an LLM">
+    Open Claude, ChatGPT, Gemini, or any vision-capable model and attach:
+
+    - All JPEG files from `crv-out/frames/`
+    - `crv-out/MANIFEST.txt`
+
+    The manifest tells the model what the video is, how long it is, how many frames were extracted and deduplicated, and includes the full transcript — so the model can reason about both what it sees and what was said. Then ask your question as you normally would.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Analyse a local file
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+Pass a file path instead of a URL. Use `-o` to choose a custom output directory and `--lang` to tell Whisper the spoken language (skips language-detection and improves accuracy):
+
+```bash
+crv lecture.mp4 -o out --lang en
+```
+
+Any format `ffmpeg` can read is supported — `.mp4`, `.mov`, `.mkv`, `.webm`, `.avi`, and more.
+
+## Focus the analysis with --why
+
+Tell `crv` *why* you are watching the video. The intent is written into `MANIFEST.txt` as the first line, instructing the LLM to analyse with that lens rather than producing a generic summary:
+
+```bash
+crv "https://youtu.be/..." --why "find the pricing strategy"
+```
+
+The resulting `MANIFEST.txt` opens with:
+
+```
+viewing intent: find the pricing strategy
+(reader: analyse the frames and transcript with this intent as the lens — surface what serves it first, skip what doesn't)
+```
+
+When you hand the output folder to a model, it immediately knows what you care about.
+
+## Frames only (skip transcription)
+
+Use `--no-transcribe` to skip the Whisper step entirely — useful when you only need visual frames or when the video has no audio:
+
+```bash
+crv clip.mp4 --no-transcribe
+```
+
+The output folder will contain `frames/` and `MANIFEST.txt` but no `transcript.txt`. The manifest notes that transcription was skipped.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="CLI Reference" icon="terminal" href="/reference/cli">
+    Full list of flags, defaults, and usage examples for the `crv` command.
+  </Card>
+  <Card title="Python API" icon="code" href="/reference/python-api">
+    Use `claude_real_video.process()` to integrate frame extraction and transcription directly into your Python code.
+  </Card>
+</CardGroup>

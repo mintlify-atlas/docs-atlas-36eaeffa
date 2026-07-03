@@ -1,0 +1,121 @@
+---
+title: "Output Format: Frames, Transcript, and MANIFEST.txt"
+sidebarTitle: "Output Format"
+description: "Understand every file claude-real-video writes to the output directory: JPEG frames, transcript.txt, MANIFEST.txt, audio.m4a, and the optional report.html."
+---
+
+Every `crv` run produces a self-contained output directory designed for direct LLM consumption. The files are deliberately simple — plain JPEG images, plain UTF-8 text, and a short manifest — so that any model can ingest them without special parsing, tool calls, or pre-processing. The directory is intended to be re-run in place: running `crv` again on the same source and output path will overwrite the previous results.
+
+---
+
+## Directory structure
+
+```
+crv-out/
+├── source.mp4          # downloaded or copied source video
+├── frames/
+│   ├── frame_001.jpg
+│   ├── frame_002.jpg
+│   └── ...             # scene-aware, deduplicated key frames
+├── transcript.txt      # full transcript (plain text)
+├── MANIFEST.txt        # summary for the LLM
+├── audio.m4a           # (optional, --keep-audio) full soundtrack
+├── dropped/            # (optional, --report) rejected duplicate frames
+└── report.html         # (optional, --report) dedup visualiser
+```
+
+---
+
+## MANIFEST.txt
+
+`MANIFEST.txt` is the **primary artifact to give to an LLM**. It is a plain-text file that summarises the run, lists the frame and transcript paths, and — when `--why` is used — opens with a focused viewing intent that instructs the model to prioritise relevant content over a generic summary.
+
+### Example
+
+```
+viewing intent: find the pricing strategy
+(reader: analyse the frames and transcript with this intent as the lens — surface what serves it first, skip what doesn't)
+
+source: https://youtu.be/...
+duration: 312s | frames: 42 (scene-change + density floor, deduped from 187 extracted)
+frames dir: crv-out/frames
+transcript: crv-out/transcript.txt (transcribed by whisper)
+--- transcript ---
+Hello, welcome to...
+```
+
+### Field reference
+
+| Field | Description |
+|-------|-------------|
+| `viewing intent` | Present only when `--why` was passed. States the purpose of the analysis and is followed by a line instructing the LLM to use it as its analytical lens. |
+| `source` | The original URL or file path passed to `crv`. |
+| `duration` | Video length in whole seconds. |
+| `frames` | Count of kept frames after deduplication, with a parenthetical showing the extraction and dedup parameters. |
+| `frames dir` | Absolute path to the `frames/` subdirectory. |
+| `transcript` | Absolute path to `transcript.txt`, plus a note on how it was produced (existing subtitles or Whisper), or a human-readable explanation if no transcript is available. |
+| `audio` | Present only when `--keep-audio` was passed. Absolute path to `audio.m4a`, or a note that the video has no audio track. |
+| `--- transcript ---` | Separator followed by the full plain-text transcript inline, so a model reading only `MANIFEST.txt` has the words without opening a second file. |
+
+---
+
+## frames/\*.jpg
+
+Key frames are stored as JPEG images inside the `frames/` subdirectory. Each image is:
+
+- **640 px wide**, with height scaled proportionally to preserve the original aspect ratio.
+- **Named `frame_NNN.jpg`** where `NNN` is a zero-padded integer starting at `001`, in strict chronological order. The numbering is assigned after deduplication and capping, so there are no gaps.
+
+Frames are selected by a single chronological ffmpeg pass that captures every scene change (controlled by `--scene`) plus a density floor of at least one frame per `--fps-floor` seconds, ensuring that both fast-cut reels and slow screencasts produce appropriate coverage. Near-duplicate frames are then removed using real RGB pixel-diff comparison against a sliding window (see `--dedup-threshold` and `--dedup-window`).
+
+---
+
+## transcript.txt
+
+`transcript.txt` is a plain UTF-8 text file containing the spoken content of the video, one subtitle line per text line. All timecodes, sequence numbers, WEBVTT headers, and inline styling tags (e.g. `<v ->`, `<b>`) are stripped, leaving only the words.
+
+**Source priority** (first match wins):
+
+1. **Sidecar file** — a `.srt` or `.vtt` file with the same base name as the local source video (e.g. `lecture.srt` alongside `lecture.mp4`).
+2. **Embedded subtitle stream** — a subtitle track muxed directly into the video file, extracted via ffmpeg and converted to plain text.
+3. **Whisper transcription** — audio is extracted to a temporary 16 kHz mono WAV, passed to the `whisper` CLI (requires `pip install openai-whisper`), and the result is saved as `transcript.txt`. The language is controlled by `--lang`.
+
+If none of the above succeed (no subtitles, no Whisper install, or a video with no audio track), `transcript.txt` is not written and `MANIFEST.txt` explains the reason clearly.
+
+---
+
+## audio.m4a
+
+`audio.m4a` contains the **full original soundtrack** — music, speech, and sound effects — as a single M4A container file. It is only written when `--keep-audio` is passed.
+
+The encoding strategy prioritises quality and speed:
+
+- **Lossless stream copy** when the source audio codec is already AAC or ALAC (no quality loss, fast).
+- **AAC re-encode at 192 kbps** as a fallback for other codecs (e.g. Opus, Vorbis).
+
+The audio file complements the transcript: the transcript has the words, but `audio.m4a` lets a model that can listen (Gemini, GPT-4o, and similar) hear the music, tone, pacing, and sound design — detail that a text transcript cannot convey.
+
+---
+
+## report.html
+
+`report.html` is a **self-contained HTML visualiser** for the deduplication pass. It is only written when `--report` is passed.
+
+Open the file in any browser (no server required) to see:
+
+- Every frame extracted before deduplication, displayed in a grid.
+- Each frame labelled with its name, pixel-diff percentage, and status:
+  - **Green border** — kept after dedup.
+  - **Red border, faded** — dropped as a near-duplicate.
+  - **Orange border, faded** — removed by the `--max-frames` cap after dedup.
+- A summary line showing the threshold, window, and kept/total counts.
+
+When `--report` is active, dropped frames are also moved into a `dropped/` subdirectory (rather than deleted), so the HTML `<img>` tags that reference them resolve correctly.
+
+Use `report.html` to tune `--dedup-threshold` and `--dedup-window` for your specific content: if too many visually distinct frames are red, lower the threshold; if too many near-identical frames are green, raise it.
+
+---
+
+<Tip>
+  **Handing the output to an LLM:** drop every image from `frames/` plus `MANIFEST.txt` into the model's context window. The manifest is self-contained enough for a quick pass; adding the frame images gives the model the full visual context. If you also passed `--keep-audio`, include `audio.m4a` for models that accept audio input (Gemini, GPT-4o, etc.).
+</Tip>

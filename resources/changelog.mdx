@@ -1,0 +1,64 @@
+---
+title: "claude-real-video Changelog"
+sidebarTitle: "Changelog"
+description: "Release history for claude-real-video. Track new features, bug fixes, and breaking changes across versions."
+---
+
+This page summarises the main changes introduced in each version of `claude-real-video`. For the very latest updates and patch releases, see the [GitHub releases page](https://github.com/HUANGCHIHHUNGLeo/claude-real-video/releases).
+
+---
+
+## 0.3.0
+
+### New flags
+
+- **`--why`** — Write your viewing intent directly into `MANIFEST.txt`. The model reads this up front and analyses the frames and transcript through that lens rather than producing a generic summary.
+
+  ```bash
+  crv "https://youtu.be/..." --why "find the pricing strategy"
+  ```
+
+- **`--kb`** — Save the analysis as a dated markdown note (e.g. `2025-01-15-video-slug.md`) into a folder you specify — an Obsidian vault, a plain notes directory, anywhere. The note lives on after `crv-out` is overwritten.
+
+  ```bash
+  crv "https://youtu.be/..." --kb ~/notes
+  ```
+
+- **`--keep-audio`** — Preserve the full original soundtrack as `audio.m4a` alongside the frames and transcript. The audio is copied losslessly where possible, and re-encoded to AAC otherwise. This lets audio-capable models (Gemini, GPT-4o, …) actually *hear* the video — not just read the words.
+
+- **`--report`** — Generate `report.html` in the output directory, showing every extracted frame — kept, dropped as a duplicate, or removed by the `--max-frames` cap — along with its pixel-diff percentage. Open in a browser to tune `--dedup-threshold` and `--scene` visually.
+
+### Subtitle priority chain
+
+`claude-real-video` now checks for existing subtitles before falling back to Whisper, in this order:
+
+1. A sidecar `.srt` or `.vtt` file sitting next to a local source file.
+2. An embedded subtitle stream inside the video container.
+3. Whisper transcription of the audio track (unchanged fallback).
+
+Using captions that already exist is both faster and more accurate than re-transcribing.
+
+### Sliding-window deduplication (`--dedup-window`, default `4`)
+
+Previously, deduplication only compared each frame against its immediate predecessor. Version 0.3.0 compares against the last `N` kept frames (default `4`). This catches **A-B-A cuts** — a shot the model has already seen won't be sent again just because a different frame appeared in between.
+
+Set `--dedup-window 1` to restore the old consecutive-only behaviour.
+
+### Honest transcript notes
+
+`MANIFEST.txt` now distinguishes clearly between two "no transcript" situations that were previously conflated:
+
+- **Silent video** (no audio track): `(none — this video has no subtitles and no audio track)`
+- **Whisper not installed**: `(none — no existing subtitles; install whisper to transcribe: pip install openai-whisper)`
+
+---
+
+## 0.1.x / 0.2.x
+
+Earlier releases introduced the core pipeline: `yt-dlp`-based URL fetching, `ffmpeg` scene-change extraction, pixel-difference deduplication, and Whisper transcription. These versions are available on PyPI. For detailed history, refer to the [GitHub repository](https://github.com/HUANGCHIHHUNGLeo/claude-real-video).
+
+---
+
+<Note>
+The current release is **0.3.0**. Install or upgrade via pip: [pypi.org/project/claude-real-video](https://pypi.org/project/claude-real-video/).
+</Note>

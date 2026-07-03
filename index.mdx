@@ -1,20 +1,76 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "claude-real-video: Let Any LLM Actually Watch a Video"
+sidebarTitle: "Home"
+description: "Extract scene-aware, deduplicated frames and a transcript from any video URL or local file. Runs fully locally — nothing uploaded to any cloud."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+`claude-real-video` gives any LLM — Claude, ChatGPT, Gemini, or any other — genuine video comprehension. Instead of sampling frames at a fixed interval (which over-samples static screencasts and under-samples fast edits), it detects every scene change, collapses near-duplicate shots with a sliding-window deduplicator, and produces a clean folder of key frames plus a transcript that any model can read.
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="circle-down" href="/installation">
+    Install via pip with optional Whisper transcription support
+  </Card>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Run your first video analysis in under two minutes
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/reference/cli">
+    Every flag and option for the `crv` command
+  </Card>
+  <Card title="Python API" icon="code" href="/reference/python-api">
+    Call `process()` directly from your own scripts
+  </Card>
+</CardGroup>
+
+## Why claude-real-video?
+
+Most "let an LLM watch a video" approaches grab frames at a fixed rate — one per second — and ignore the audio. That means a ten-minute screencast with no cuts sends hundreds of nearly-identical frames, while a fast-cut trailer misses visual changes between samples. `claude-real-video` is different:
+
+<CardGroup cols={2}>
+  <Card title="Scene-change detection" icon="film">
+    Frames are selected at every scene cut plus a configurable density floor — not a fixed quota.
+  </Card>
+  <Card title="Sliding-window dedup" icon="layer-group">
+    A-B-A cuts and repeated shots are collapsed so the model only sees each unique shot once.
+  </Card>
+  <Card title="Smart transcription" icon="microphone">
+    Uses existing subtitles (.srt/.vtt or embedded) first; falls back to Whisper only when needed.
+  </Card>
+  <Card title="Fully local" icon="lock">
+    Runs entirely on your machine. No video is uploaded to any third-party cloud service.
+  </Card>
+</CardGroup>
+
+## How it works
+
+<Steps>
+  <Step title="Fetch the video">
+    Point `crv` at a YouTube, Instagram, or TikTok URL (via `yt-dlp`) or a local file path. The video stays on your machine.
+  </Step>
+  <Step title="Extract meaningful frames">
+    `ffmpeg` runs a single chronological pass that captures every scene change **plus** a density floor — so you get the right frames whether the video is a static slideshow or a rapid-fire reel.
+  </Step>
+  <Step title="Deduplicate with a sliding window">
+    Each candidate frame is compared against the last N kept frames using real pixel difference. Repeated shots — even after a cutaway — are dropped automatically.
+  </Step>
+  <Step title="Transcribe the audio">
+    If the video already has subtitles (sidecar `.srt`/`.vtt` or an embedded stream), those are used verbatim. Otherwise Whisper transcribes the audio track.
+  </Step>
+  <Step title="Hand everything to your LLM">
+    Drop the `frames/` folder and `MANIFEST.txt` into Claude, ChatGPT, or any vision-capable model and ask your question.
+  </Step>
+</Steps>
+
+## Quick example
+
+```bash
+# Analyse a YouTube video
+crv "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+# → crv-out/frames/*.jpg   (key frames, deduplicated)
+# → crv-out/transcript.txt (full transcript)
+# → crv-out/MANIFEST.txt   (summary for the LLM)
+```
 
 <Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
+  Add `--why "find the pricing strategy"` to write your analysis intent into `MANIFEST.txt` so the model focuses on what you actually care about instead of producing a generic summary.
 </Tip>
-
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>

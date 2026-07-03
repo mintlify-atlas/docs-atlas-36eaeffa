@@ -1,0 +1,66 @@
+---
+title: "claude-real-video: Scene-Aware Video Intelligence for LLMs"
+sidebarTitle: "Introduction"
+description: "claude-real-video extracts meaningful frames and a transcript from any video so LLMs can truly understand what they're watching. Runs fully locally."
+---
+
+`claude-real-video` lets any vision-capable LLM actually *watch* a video. Point it at a YouTube URL or a local file, and it pulls only the frames that matter — every scene change, not a rigid per-second quota — throws away near-duplicates, transcribes the audio with Whisper, and writes a clean output folder your LLM can read. Everything runs on your own machine: no video is uploaded, no credentials are shared.
+
+## Fixed-interval sampling vs. claude-real-video
+
+Most "let an LLM watch a video" tools — including Gemini's own pipeline — grab frames at a fixed interval (1 fps by default). That over-samples a static screencast and silently drops frames in a fast-cut reel. `claude-real-video` uses scene-change detection and sliding-window deduplication instead.
+
+| | Fixed-interval sampling | **claude-real-video** |
+|---|---|---|
+| **Frame selection** | Every N seconds | Scene-change detection + density floor |
+| **Repeated shots (A-B-A cuts)** | Sent again every time | Sliding-window dedup sends each shot once |
+| **Static screencasts** | ~600 near-identical frames per 10 min | Collapses to 1 (dedup) |
+| **Fast-cut reels** | Misses frames between samples | Catches each visual change |
+| **Audio** | Often ignored | Whisper transcript with language detection |
+| **Privacy** | Video often uploaded to the cloud | Stays on your machine |
+| **Input sources** | Usually local file only | URL (via yt-dlp) or local file |
+
+The result is *fewer, more meaningful* frames — cheaper context for the model and better understanding of what actually happened in the video.
+
+## Key capabilities
+
+<CardGroup cols={2}>
+  <Card title="Scene-change detection" icon="film" href="/guides/frame-extraction">
+    Uses `ffmpeg`'s scene filter combined with a configurable density floor to capture every visual transition — fast-cut reels and 10-minute static slides are both handled correctly.
+  </Card>
+  <Card title="Sliding-window deduplication" icon="copy" href="/guides/deduplication">
+    Compares real pixel differences (downscaled RGB) against the last N kept frames. A shot the model already saw does not come back after a cutaway — A-B-A alternation is suppressed.
+  </Card>
+  <Card title="Whisper transcription" icon="microphone" href="/guides/transcription">
+    Prefers subtitles already embedded in the video (faster and more accurate), and falls back to Whisper only when none exist. Supports automatic language detection or an explicit language code.
+  </Card>
+  <Card title="Fully local processing" icon="lock" href="/installation">
+    No frames, audio, or transcripts leave your machine. Works with login-gated sources via a Netscape cookie file — your credentials stay under your control.
+  </Card>
+</CardGroup>
+
+## Supported LLMs
+
+`claude-real-video` produces output any vision-capable LLM can read. The output is just JPEG frames and a plain-text transcript — no proprietary format, no SDK required.
+
+Drop the frames and `MANIFEST.txt` into the chat window of your preferred model:
+
+- **Claude** (Claude.ai or API)
+- **ChatGPT** (GPT-4o and later)
+- **Gemini** (1.5 Pro / Flash and later)
+- Any other model that accepts image attachments and plain text
+
+The `MANIFEST.txt` file includes the source URL, video duration, frame count, dedup statistics, and the full transcript — everything a model needs to reason about the video without any additional context.
+
+## Requirements
+
+| Requirement | Notes |
+|---|---|
+| **Python 3.10+** | Required |
+| **ffmpeg** (on `PATH`) | Used for frame extraction and audio processing; not pip-installable |
+| **yt-dlp** | Bundled as a dependency; used for URL sources (YouTube, Instagram, TikTok, …) |
+| **openai-whisper** | Optional; required for audio transcription (`pip install "claude-real-video[whisper]"`) |
+
+<Note>
+  Ready to get started? Head to [Installation](/installation) to install `claude-real-video` and set up `ffmpeg`.
+</Note>

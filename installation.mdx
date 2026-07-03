@@ -1,0 +1,118 @@
+---
+title: "Install claude-real-video: pip, ffmpeg, and Whisper setup"
+sidebarTitle: "Installation"
+description: "Install claude-real-video via pip for frame extraction. Add the whisper extra for audio transcription. Requires ffmpeg on your PATH."
+---
+
+`claude-real-video` has two install tiers. The **core install** gives you scene-aware frame extraction and deduplication — everything you need to feed a video's key frames to an LLM. The **full install** adds `openai-whisper` so the tool can also transcribe the audio and write a plain-text transcript alongside the frames.
+
+<Note>
+  Python 3.10 or later is required. Check your version with `python --version` before continuing.
+</Note>
+
+## Install the package
+
+<CodeGroup>
+  ```bash Core install
+  pip install claude-real-video
+  ```
+
+  ```bash With Whisper transcription
+  pip install "claude-real-video[whisper]"
+  ```
+</CodeGroup>
+
+The core install pulls in `yt-dlp` (for URL sources) and `Pillow` (for pixel-level deduplication). The `[whisper]` extra additionally installs `openai-whisper`.
+
+## Install ffmpeg
+
+`ffmpeg` and `ffprobe` are used for frame extraction and audio processing. They are **not pip-installable** — you must install them through your system's package manager and ensure they are on your `PATH`.
+
+<Tabs>
+  <Tab title="macOS">
+    The easiest path is [Homebrew](https://brew.sh):
+
+    ```bash
+    brew install ffmpeg
+    ```
+  </Tab>
+  <Tab title="Linux">
+    Use your distribution's package manager. On Debian/Ubuntu:
+
+    ```bash
+    sudo apt install ffmpeg
+    ```
+
+    On Fedora/RHEL:
+
+    ```bash
+    sudo dnf install ffmpeg
+    ```
+
+    On Arch:
+
+    ```bash
+    sudo pacman -S ffmpeg
+    ```
+  </Tab>
+  <Tab title="Windows">
+    **Option 1 — winget (recommended):**
+
+    ```powershell
+    winget install Gyan.FFmpeg
+    ```
+
+    **Option 2 — Chocolatey:**
+
+    ```powershell
+    choco install ffmpeg
+    ```
+
+    **Option 3 — manual:**
+
+    Download a build from [gyan.dev/ffmpeg/builds](https://www.gyan.dev/ffmpeg/builds/), extract the archive, and add its `bin\` folder to your `PATH` environment variable.
+  </Tab>
+</Tabs>
+
+### Verify ffmpeg is on your PATH
+
+After installation, confirm `ffmpeg` can be found:
+
+```bash
+ffmpeg -version
+```
+
+You should see a version string like `ffmpeg version 7.x ...`. If the command is not found, check that the `bin\` folder (Windows) or the install path (macOS/Linux) is in your `PATH`.
+
+## Whisper
+
+Transcription uses the `whisper` CLI, which is installed automatically by the `[whisper]` extra. You can also install it separately:
+
+```bash
+pip install openai-whisper
+```
+
+Whisper also relies on `ffmpeg` to extract audio from video files, so the ffmpeg installation above is a prerequisite for transcription as well. If `whisper` is not found on your `PATH`, `claude-real-video` skips transcription cleanly and notes the reason in `MANIFEST.txt`.
+
+## Verify the install
+
+<Steps>
+  <Step title="Run the help command">
+    ```bash
+    crv --help
+    ```
+
+    You should see the full usage output listing all flags and their defaults.
+  </Step>
+  <Step title="Alternative entry point">
+    The module entry point works as an alias if `crv` is not in your shell's `PATH` (for example, in some virtual-environment setups):
+
+    ```bash
+    python -m claude_real_video --help
+    ```
+  </Step>
+</Steps>
+
+## Supported platforms
+
+`claude-real-video` is tested on **macOS**, **Linux**, and **Windows**.

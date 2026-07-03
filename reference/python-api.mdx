@@ -1,0 +1,199 @@
+---
+title: "Python API Reference for claude-real-video"
+sidebarTitle: "Python API"
+description: "Full API reference for claude-real-video's Python interface. Covers the process() function, the Result dataclass, and all internal pipeline helpers."
+---
+
+The Python API exposes the same pipeline as the CLI as importable functions and a typed dataclass. Use it when you want to integrate video analysis into your own scripts, notebooks, or applications — for example, to batch-process multiple videos, post-process the `Result` object programmatically, or wire the output directly into an LLM call without touching the command line. For one-off, interactive use the [CLI](/reference/cli) is usually more convenient.
+
+---
+
+## Installation
+
+Install the package and then import the two public names:
+
+```python
+from claude_real_video import process, Result
+```
+
+Both `process` and `Result` are the only names listed in `__all__`; everything else is internal.
+
+---
+
+## process()
+
+`process()` is the single entrypoint that runs the full pipeline: download or copy the video, extract scene-aware frames, deduplicate, transcribe, and write `MANIFEST.txt`.
+
+```python
+from claude_real_video import process
+
+result = process(
+    src,
+    out_dir,
+    *,
+    scene=0.30,
+    fps_floor=1.0,
+    max_frames=150,
+    lang="auto",
+    cookies=None,
+    do_transcribe=True,
+    dedup_threshold=8,
+    dedup_window=4,
+    keep_audio=False,
+    report=False,
+    why=None,
+)
+```
+
+### Parameters
+
+<ParamField path="src" type="string" required>
+  URL of a video (any site supported by yt-dlp, e.g. YouTube, Instagram, TikTok) or a local file path such as `"lecture.mp4"` or `"/home/user/clips/talk.mov"`.
+</ParamField>
+
+<ParamField path="out_dir" type="string" required>
+  Output directory. Created automatically (including any missing parents) if it does not already exist. Re-running overwrites existing contents.
+</ParamField>
+
+<ParamField path="scene" type="float" default="0.30">
+  Scene-change sensitivity on a 0–1 scale. Lower values capture more frames on each visual cut; higher values require a more dramatic change. Passed directly to ffmpeg's `select` filter.
+</ParamField>
+
+<ParamField path="fps_floor" type="float" default="1.0">
+  Minimum frame density expressed in seconds. At least one frame is guaranteed every `fps_floor` seconds regardless of scene changes, preventing long static segments from producing no frames at all.
+</ParamField>
+
+<ParamField path="max_frames" type="int" default="150">
+  Hard cap on the total frame count after deduplication. Survivors are thinned uniformly so coverage remains spread across the full video timeline.
+</ParamField>
+
+<ParamField path="lang" type="string or None" default='"auto"'>
+  Whisper language code for audio transcription. Use `"auto"` to let Whisper detect the language, or pass a specific code such as `"en"`, `"zh"`, or `"fr"`. Ignored when `do_transcribe=False` or when existing subtitles are used.
+</ParamField>
+
+<ParamField path="cookies" type="string or None" default="None">
+  Absolute or relative path to a Netscape-format cookie file. Pass this for login-gated video sources that require authentication. Use only your own authorised credentials.
+</ParamField>
+
+<ParamField path="do_transcribe" type="bool" default="True">
+  Whether to attempt audio transcription. When `False`, no `transcript.txt` is written. Maps to the inverse of the CLI's `--no-transcribe` flag.
+</ParamField>
+
+<ParamField path="dedup_threshold" type="float" default="8">
+  Percentage of pixels (in a downscaled RGB thumbnail) that must differ from all frames in the dedup window for a frame to be retained. Higher values keep fewer frames; lower values preserve more visual variation.
+</ParamField>
+
+<ParamField path="dedup_window" type="int" default="4">
+  Number of recently kept frames to compare each candidate against. Using a window larger than 1 prevents A-B-A editing patterns from re-introducing shots the model has already seen after a cutaway. Set to `1` for classic consecutive-only deduplication.
+</ParamField>
+
+<ParamField path="keep_audio" type="bool" default="False">
+  When `True`, the full original soundtrack (music + speech + effects) is saved as `audio.m4a` in the output directory and its path is returned in `Result.audio_path`. Losslessly stream-copied when the source codec allows; otherwise re-encoded to AAC 192 kbps.
+</ParamField>
+
+<ParamField path="report" type="bool" default="False">
+  When `True`, writes a self-contained `report.html` deduplication visualiser and moves dropped frames into a `dropped/` subdirectory. The report path is returned in `Result.report_path`.
+</ParamField>
+
+<ParamField path="why" type="string or None" default="None">
+  A short description of your viewing intent that is written into `MANIFEST.txt`. When provided, the manifest instructs the LLM to focus its analysis through this lens rather than producing a generic summary.
+</ParamField>
+
+### Returns
+
+A [`Result`](#result) dataclass instance.
+
+### Raises
+
+- `RuntimeError` — if `yt-dlp` is not installed for a URL source, or if the download fails (e.g. private video).
+- `FileNotFoundError` — if `src` is a local path that does not exist.
+
+---
+
+## Result
+
+`Result` is a `dataclasses.dataclass` returned by `process()`. All paths are absolute strings.
+
+<ResponseField name="out_dir" type="string">
+  Absolute path to the output directory that was created (or reused) for this run.
+</ResponseField>
+
+<ResponseField name="video" type="string">
+  Absolute path to the downloaded or copied source video file (always `source.mp4` inside `out_dir`).
+</ResponseField>
+
+<ResponseField name="duration" type="int">
+  Video duration in whole seconds, as reported by `ffprobe`. Returns `0` if the duration cannot be determined.
+</ResponseField>
+
+<ResponseField name="frames_dir" type="string">
+  Absolute path to the `frames/` subdirectory containing the kept JPEG frames.
+</ResponseField>
+
+<ResponseField name="frame_count" type="int">
+  Number of frames remaining after deduplication and the `max_frames` cap — the frames the LLM should consume.
+</ResponseField>
+
+<ResponseField name="extracted_frames" type="int">
+  Number of raw frames extracted by ffmpeg before deduplication. Always `>= frame_count`.
+</ResponseField>
+
+<ResponseField name="transcript_path" type="string or None">
+  Absolute path to `transcript.txt`, or `None` if transcription was skipped, failed, or the video has no audio. The file contains plain UTF-8 text with timecodes stripped.
+</ResponseField>
+
+<ResponseField name="manifest_path" type="string">
+  Absolute path to `MANIFEST.txt`, the primary summary file to hand to an LLM.
+</ResponseField>
+
+<ResponseField name="transcript_note" type="string">
+  Human-readable explanation of the transcript status. Examples: `"(skipped: --no-transcribe)"`, `"/abs/path/transcript.txt (transcribed by whisper)"`, `"(none — this video has no subtitles and no audio track)"`.
+</ResponseField>
+
+<ResponseField name="audio_path" type="string or None">
+  Absolute path to `audio.m4a` if `keep_audio=True` and the video has an audio stream, otherwise `None`.
+</ResponseField>
+
+<ResponseField name="report_path" type="string or None">
+  Absolute path to `report.html` if `report=True`, otherwise `None`.
+</ResponseField>
+
+---
+
+## Usage example
+
+```python
+from claude_real_video import process
+
+r = process(
+    "https://youtu.be/dQw4w9WgXcQ",
+    "output",
+    lang="en",
+    why="find all product demo moments",
+)
+
+print(f"Kept {r.frame_count} frames (from {r.extracted_frames} extracted)")
+print(f"Transcript: {r.transcript_path}")
+print(f"Manifest:   {r.manifest_path}")
+```
+
+---
+
+## Pipeline helpers
+
+The following functions are defined in `claude_real_video.core` and form the individual stages of the pipeline. They are not part of the public `__all__` export.
+
+<Note>
+  These are internal helpers exposed for advanced use cases. Most users should call `process()` directly — it orchestrates all of the stages below in the correct order.
+</Note>
+
+| Function | Description |
+|----------|-------------|
+| `fetch_video(src, out_dir, cookies)` | Downloads a URL via yt-dlp or copies a local file to `source.mp4` in the output directory. |
+| `extract_frames(video, frames_dir, scene, fps_floor)` | Runs a single chronological ffmpeg pass to capture every scene change plus one frame per `fps_floor` seconds; returns the raw extracted frame count. |
+| `dedup_frames(frames_dir, threshold, window, max_frames, dropped_dir)` | Drops near-duplicate frames using real RGB pixel-diff against a sliding window; applies the `max_frames` cap; returns `(kept_count, per_frame_records)`. |
+| `transcribe(video, out_dir, lang)` | Extracts audio to a temporary WAV and runs the Whisper CLI; returns the path to `transcript.txt` or `None`. |
+| `existing_subtitles(src, video, out_dir)` | Checks for a sidecar `.srt`/`.vtt` next to a local file, then an embedded subtitle stream; returns a plain-text transcript path or `None`. |
+| `extract_full_audio(video, out_dir)` | Saves the full original soundtrack as `audio.m4a`; stream-copies losslessly when possible, otherwise re-encodes to AAC 192 kbps. |
+| `save_to_kb(kb_dir, manifest_path, src)` | Copies the manifest into a knowledge-base directory as a dated Markdown note (`YYYY-MM-DD-<slug>.md`). |
+| `write_report(out_dir, records, threshold, window)` | Writes a self-contained `report.html` showing every extracted frame with its pixel-diff percentage and keep/drop/cap status. |

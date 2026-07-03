@@ -1,0 +1,112 @@
+---
+title: "crv CLI Reference: All Commands and Flags"
+sidebarTitle: "CLI"
+description: "Complete reference for the crv command-line interface. Covers every flag, its default value, accepted values, and practical examples."
+---
+
+The `crv` command (a short alias for `claude-real-video`) is the primary way to use this tool from a terminal. You can also invoke it as `python -m claude_real_video` — both forms accept identical arguments.
+
+## Synopsis
+
+```
+crv <source> [options]
+```
+
+`<source>` is a video URL (YouTube, Instagram, TikTok, and any site supported by yt-dlp) or a local file path (e.g. `lecture.mp4`).
+
+---
+
+## Options
+
+<ParamField path="-o, --out" type="string" default="crv-out">
+  Output directory where all files are written. Created automatically if it does not exist. Re-running overwrites the existing contents.
+</ParamField>
+
+<ParamField path="--scene" type="float" default="0.30">
+  Scene-change sensitivity on a 0–1 scale. Lower values mean more frames are captured on each cut; higher values require a more dramatic visual change before a new frame is recorded. Adjust downward for fast-cut videos and upward to reduce redundant frames in slow-paced content.
+</ParamField>
+
+<ParamField path="--fps-floor" type="float" default="1.0">
+  Guarantee at least one frame is captured every N seconds, regardless of scene-change detection. Acts as a density floor so that long static scenes still produce at least one representative frame per interval.
+</ParamField>
+
+<ParamField path="--max-frames" type="integer" default="150">
+  Hard cap on the total number of frames after deduplication. When the surviving frame count exceeds this limit, frames are thinned uniformly so that coverage remains spread across the full video timeline.
+</ParamField>
+
+<ParamField path="--lang" type="string" default="auto">
+  Whisper language code for audio transcription. Accepts any code the Whisper model understands, such as `en`, `zh`, `fr`, `ja`, or `auto` (let Whisper detect the language automatically). Has no effect when `--no-transcribe` is set or when existing subtitles are found.
+</ParamField>
+
+<ParamField path="--cookies" type="string">
+  Path to a Netscape-format cookie file for login-gated video sources. Pass cookies that belong to your own authorised account only — never commit credential files to a repository.
+</ParamField>
+
+<ParamField path="--no-transcribe" type="flag">
+  Skip audio transcription entirely. No `transcript.txt` will be produced, and the `--- transcript ---` section of `MANIFEST.txt` will be empty. Useful for silent videos or when you only need the frames.
+</ParamField>
+
+<ParamField path="--dedup-threshold" type="float" default="8">
+  Percentage of pixels (in a downscaled RGB thumbnail) that must differ from every frame in the dedup window for a new frame to be kept. Higher values are more permissive and keep fewer frames; lower values are stricter and retain more visual variation. A value of `8` means a frame is kept only if at least 8 % of its pixels changed colour compared to each of the last N kept frames.
+</ParamField>
+
+<ParamField path="--dedup-window" type="integer" default="4">
+  Size of the sliding window used during deduplication. Each candidate frame is compared against the last N kept frames, not just the immediately preceding one. This prevents an A-B-A editing pattern from re-introducing a shot the model has already seen after a cutaway. Set to `1` for classic consecutive-only comparison.
+</ParamField>
+
+<ParamField path="--report" type="flag">
+  Write a `report.html` deduplication visualiser and move all dropped frames into a `dropped/` subdirectory instead of deleting them. Open `report.html` in any browser to inspect every keep/drop decision and its pixel-diff percentage — useful for tuning `--dedup-threshold` and `--dedup-window`.
+</ParamField>
+
+<ParamField path="--why" type="string">
+  A short description of your viewing intent, written verbatim into `MANIFEST.txt`. For example: `--why "find the pricing strategy"`. When present, the manifest instructs the LLM to analyse with this intent as its lens — surfacing relevant moments first rather than producing a generic summary.
+</ParamField>
+
+<ParamField path="--kb" type="string">
+  Path to a knowledge-base directory (e.g. your Obsidian vault or notes folder). When provided, `crv` copies the analysis as a dated Markdown note (`YYYY-MM-DD-<slug>.md`) into that directory so the result persists alongside your other notes instead of living only in `crv-out`.
+</ParamField>
+
+<ParamField path="--keep-audio" type="flag">
+  Also save the full original soundtrack as `audio.m4a` in the output directory. The audio file contains music, speech, and sound effects — everything the transcript does not capture. Intended for audio-capable models such as Gemini and GPT-4o.
+</ParamField>
+
+---
+
+## Examples
+
+<CodeGroup>
+
+```bash YouTube URL
+crv "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+```
+
+```bash Local file with transcript language
+crv lecture.mp4 -o out --lang en
+```
+
+```bash Frames only
+crv clip.mp4 --no-transcribe
+```
+
+```bash Focused analysis with knowledge base
+crv "https://youtu.be/..." --why "find the pricing strategy" --kb ~/notes
+```
+
+```bash Login-gated video
+crv "https://..." --cookies cookies.txt
+```
+
+```bash Debug deduplication
+crv video.mp4 --report --dedup-threshold 12 --dedup-window 6
+```
+
+</CodeGroup>
+
+---
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success — all output files have been written to the output directory. |
+| `1` | Error — a descriptive message is printed to `stderr`. Common causes include a failed download (private video, missing `yt-dlp`), a missing `ffmpeg` installation, or an invalid argument. |
