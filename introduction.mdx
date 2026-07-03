@@ -14,10 +14,10 @@ Most "let an LLM watch a video" tools — including Gemini's own pipeline — gr
 |---|---|---|
 | **Frame selection** | Every N seconds | Scene-change detection + density floor |
 | **Repeated shots (A-B-A cuts)** | Sent again every time | Sliding-window dedup sends each shot once |
-| **Static screencasts** | ~600 near-identical frames per 10 min | Collapses to 1 (dedup) |
+| **Static slide (10 min)** | ~600 near-identical frames | Collapses to 1 (dedup) |
 | **Fast-cut reels** | Misses frames between samples | Catches each visual change |
 | **Audio** | Often ignored | Whisper transcript with language detection |
-| **Privacy** | Video often uploaded to the cloud | Stays on your machine |
+| **Where the video goes** | Video often uploaded to the cloud | Stays on your machine |
 | **Input sources** | Usually local file only | URL (via yt-dlp) or local file |
 
 The result is *fewer, more meaningful* frames — cheaper context for the model and better understanding of what actually happened in the video.

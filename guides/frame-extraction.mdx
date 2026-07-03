@@ -1,7 +1,7 @@
 ---
 title: "Frame Extraction: Scene-Change Detection and Density Floor"
 sidebarTitle: "Frame Extraction"
-description: "Understand how claude-real-video selects frames using ffmpeg scene-change detection combined with a configurable density floor to cover both fast cuts and static screencasts."
+description: "How claude-real-video selects frames via ffmpeg scene-change detection and a density floor, covering fast cuts and slow screencasts without over-sampling."
 ---
 
 The naive approach to extracting frames — sample one every N seconds — fails at both extremes. A static screencast with a single talking head generates hundreds of near-identical frames, flooding the model's context window with redundant images. A fast-cut music video or film trailer sees whole scenes pass between samples, leaving the model blind to significant visual changes. `claude-real-video` solves both problems with a single `ffmpeg` pass that combines **scene-change detection** with a **density floor**, then removes any remaining duplicates before the LLM ever sees a frame.
@@ -17,7 +17,7 @@ select='gt(scene,{scene})+not(mod(n,{every_n}))',scale=640:-1
 The two clauses are joined with `+` (logical OR):
 
 - **`gt(scene,{scene})`** — fires on any frame where ffmpeg's built-in scene-change score exceeds the threshold. The score is a normalised value between 0 and 1 representing how much the current frame differs from the previous one. A lower threshold means more sensitive detection and more frames.
-- **`not(mod(n,{every_n}))`** — fires on every *N*th frame number, providing the density floor. `every_n` is computed as `round(fps × fps_floor)`, so at 25 fps with `--fps-floor 1.0` it keeps one frame per second regardless of how static the footage is.
+- **`not(mod(n,{every_n}))`** — fires on every *N*th frame number, providing the density floor. `every_n` is computed as `max(1, round(fps × fps_floor))`, so at 25 fps with `--fps-floor 1.0` it keeps one frame per second regardless of how static the footage is. The `max(1, …)` guard ensures at least every frame is eligible even at very low frame rates.
 
 Because both conditions are evaluated in a single pass with `-vsync vfr`, all selected frames emerge in strict **chronological order** — critical for the deduplication stage, which compares true temporal neighbours.
 

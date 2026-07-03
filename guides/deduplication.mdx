@@ -1,7 +1,7 @@
 ---
 title: "Frame Deduplication: Sliding-Window Pixel Difference"
 sidebarTitle: "Deduplication"
-description: "Learn how claude-real-video eliminates near-duplicate frames using real pixel difference against a sliding window, so repeated shots are never sent to your LLM twice."
+description: "How claude-real-video drops near-duplicate frames with sliding-window RGB pixel difference, so repeated shots and A-B-A cutaways never reach the LLM twice."
 ---
 
 Frame extraction can produce large numbers of near-identical images. A ten-minute screencast with one static slide will generate hundreds of frames that are pixel-for-pixel identical. An A-B-A edit (cut to a reaction shot and back) will re-introduce a shot the model has already processed. Without deduplication, the model's context window fills up with redundant images, wasting tokens and diluting the signal. `claude-real-video` removes near-duplicates using a **sliding-window pixel-difference algorithm** before any frame reaches the LLM.

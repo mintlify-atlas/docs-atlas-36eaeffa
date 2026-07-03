@@ -1,7 +1,7 @@
 ---
 title: "Video Transcription: Subtitles and Whisper Fallback"
 sidebarTitle: "Transcription"
-description: "claude-real-video uses existing subtitles first (sidecar .srt/.vtt or embedded streams) and falls back to Whisper only when none exist, for fast and accurate transcripts."
+description: "claude-real-video uses existing subtitles first — sidecar .srt/.vtt or embedded streams — then falls back to Whisper only when none are found."
 ---
 
 Frames give a model the visual track of a video. Transcription gives it the words. Together they let the LLM see, read, and reason about a video at the same time — without the model having to perform speech recognition itself or receiving a wall of unstructured audio.
@@ -16,7 +16,7 @@ Drawn from the `process()` function in `core.py`:
 
 2. **Embedded subtitle stream** — if the video file carries an embedded subtitle track (detected via `ffprobe -select_streams s`), it is extracted with `ffmpeg -map 0:s:0` and converted to plain text the same way.
 
-3. **Whisper transcription** — when no subtitles exist, the tool extracts a 16 kHz mono WAV from the video and passes it to the `whisper` CLI. This requires the `[whisper]` extra (see below). Whisper uses the `base` model by default and writes output to `{out_dir}/transcript.txt`.
+3. **Whisper transcription** — when no subtitles exist, the tool extracts a 16 kHz mono WAV (`audio.wav`) from the video and passes it to the `whisper` CLI. This requires the `[whisper]` extra (see below). Whisper uses the `base` model by default and writes its output to `{out_dir}/audio.txt`; the file is then renamed to `{out_dir}/transcript.txt`.
 
 4. **No transcript** — if the video has no audio track, or `--no-transcribe` was passed, the manifest records the reason honestly (e.g. `"(none — this video has no subtitles and no audio track)"`). This is not an error.
 

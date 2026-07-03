@@ -1,5 +1,5 @@
 ---
-title: "crv CLI Reference: All Commands and Flags"
+title: "crv CLI Reference: All Flags, Defaults, and Examples"
 sidebarTitle: "CLI"
 description: "Complete reference for the crv command-line interface. Covers every flag, its default value, accepted values, and practical examples."
 ---
@@ -12,7 +12,13 @@ The `crv` command (a short alias for `claude-real-video`) is the primary way to 
 crv <source> [options]
 ```
 
-`<source>` is a video URL (YouTube, Instagram, TikTok, and any site supported by yt-dlp) or a local file path (e.g. `lecture.mp4`).
+---
+
+## Arguments
+
+<ParamField path="source" type="string" required>
+  Video URL (YouTube, Instagram, TikTok, and any site supported by yt-dlp) or a local file path (e.g. `lecture.mp4`). This is the only positional (required) argument.
+</ParamField>
 
 ---
 
@@ -62,7 +68,7 @@ crv <source> [options]
   A short description of your viewing intent, written verbatim into `MANIFEST.txt`. For example: `--why "find the pricing strategy"`. When present, the manifest instructs the LLM to analyse with this intent as its lens — surfacing relevant moments first rather than producing a generic summary.
 </ParamField>
 
-<ParamField path="--kb" type="string">
+<ParamField path="--kb" type="DIR">
   Path to a knowledge-base directory (e.g. your Obsidian vault or notes folder). When provided, `crv` copies the analysis as a dated Markdown note (`YYYY-MM-DD-<slug>.md`) into that directory so the result persists alongside your other notes instead of living only in `crv-out`.
 </ParamField>
 

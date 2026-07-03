@@ -33,7 +33,7 @@ description: "A step-by-step walkthrough of the claude-real-video pipeline: fetc
     ```
 
     - `gt(scene,{scene})` — fire on any frame where the scene-change score exceeds the threshold (default `0.30`).
-    - `not(mod(n,{every_n}))` — also keep every *N*th frame, where `every_n = round(fps × fps_floor)`. At 25 fps with the default `--fps-floor 1.0`, that is every 25th frame — at least one frame per second regardless of how static the video is.
+    - `not(mod(n,{every_n}))` — also keep every *N*th frame, where `every_n = max(1, round(fps × fps_floor))`. At 25 fps with the default `--fps-floor 1.0`, that is every 25th frame — at least one frame per second regardless of how static the video is.
     - `scale=640:-1` — resize to 640 px wide (aspect ratio preserved) for consistent, manageable image sizes.
 
     The `-vsync vfr` flag prevents duplicated timestamps. Frames are written as `raw_00001.jpg`, `raw_00002.jpg`, … into `{out_dir}/frames/`.
